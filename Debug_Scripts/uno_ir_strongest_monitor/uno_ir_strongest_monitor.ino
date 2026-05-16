@@ -8,18 +8,12 @@
   - Common GND
 */
 
-#include <SoftwareSerial.h>
-
 const unsigned long usbBaud = 115200;
-const unsigned long microBaud = 9600;
-const byte microRxPin = 9;
-const byte microTxPin = 8; // unused, but SoftwareSerial needs a TX pin
-
-SoftwareSerial microSerial(microRxPin, microTxPin);
-
 void setup() {
+  // Use hardware Serial (pins D0/D1) for Micro communication at 115200.
+  // This is the same Serial used by USB on the Uno; open the Uno Serial Monitor
+  // on the Uno's COM port to see received bytes.
   Serial.begin(usbBaud);
-  microSerial.begin(microBaud);
   delay(100);
 
   Serial.println("UNO strongest IR monitor started");
@@ -27,16 +21,12 @@ void setup() {
 }
 
 void loop() {
-  while (microSerial.available()) {
-    int value = microSerial.read();
-
+  while (Serial.available()) {
+    int value = Serial.read();
     if (value == 255) {
       Serial.println("Strongest sensor: none");
     } else if (value >= 0 && value <= 11) {
       Serial.print("Strongest sensor: ");
-      Serial.println(value);
-    } else {
-      Serial.print("Unexpected byte: ");
       Serial.println(value);
     }
   }

@@ -21,3 +21,4 @@ void loop() {
 
   delay(50); // Wait for 50 milliseconds before making the next I2C request
 }
+  
