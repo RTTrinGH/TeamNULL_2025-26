@@ -1,6 +1,6 @@
 /*
   UART_Counter_Micro.ino
-  Arduino Micro sends increasing integers over Serial1 every 500 ms.
+  Arduino Micro sends labels A-L over Serial1 every 500 ms.
   On the Micro, Serial is USB; Serial1 is the hardware UART on pins 0(RX) and 1(TX).
   USB Serial is kept active as debug output so we can verify the loop is running.
 */
@@ -8,7 +8,8 @@
 const unsigned long BAUD = 115200;
 const unsigned long INTERVAL_MS = 500;
 unsigned long lastMillis = 0;
-unsigned long counterVal = 1;
+unsigned long counterVal = 0;
+const char COUNTER_LABELS[] = {'A','B','C','D','E','F','G','H','I','J','K','L'};
 
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
@@ -24,10 +25,11 @@ void loop() {
   unsigned long now = millis();
   if (now - lastMillis >= INTERVAL_MS) {
     digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
+    char label = COUNTER_LABELS[counterVal];
     Serial.print("USB COUNTER: ");
-    Serial.println(counterVal);
-    Serial1.println(counterVal);
-    counterVal++;
+    Serial.println(label);
+    Serial1.println(label);
+    counterVal = (counterVal + 1) % 12;
     lastMillis = now;
   }
 }

@@ -20,6 +20,7 @@
 */
 
 // Using hardware Serial on pins D0 (RX) / D1 (TX)
+// Micro only needs to transmit to Uno RX (D0) for this sketch.
 
 // Motor control pins
 const int motorDirectionPins[4] = {4, 12, 8, 7};
@@ -33,8 +34,17 @@ const int searchSpeed = 100;
 // Timing and packet state
 unsigned long lastPacketTime = 0;
 const unsigned long PACKET_TIMEOUT = 500;  // ms - consider packet lost if no data for 500ms
-const unsigned long MOVE_INTERVAL = 1000;   // ms - update drive command once per second
+const unsigned long MOVE_INTERVAL = 50;   // ms - update drive command frequently for tracking
 unsigned long lastMoveCommandTime = 0;
+
+// Debug helpers:
+// - Set DEBUG_FORCE_MOTION_SWEEP to true to ignore the Micro and cycle through
+//   forward/right/back/left for motor testing without using Serial Monitor.
+// - The onboard LED blinks briefly when a byte arrives from the Micro.
+const bool DEBUG_FORCE_MOTION_SWEEP = true;
+const unsigned long DEBUG_SWEEP_INTERVAL = 1000;
+unsigned long lastDebugSweepTime = 0;
+byte debugSweepMode = 0;
 
 // Which sensor index (0-11) is physically aligned with motor 0 (FL reference).
 // Set this to rotate the sensor ring so front/back/left/right line up with your robot.
@@ -44,8 +54,10 @@ const byte sensorIndexAtMotor0 = 3;
 byte currentStrongestSensor = 255;
 
 void setup() {
-  // Use hardware Serial (pins 0/1) at 9600 baud for Micro UART
-  Serial.begin(9600);
+  // Use hardware Serial (pins 0/1) at 115200 baud for Micro UART
+  Serial.begin(115200);
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW);
   
   // Initialize motor control pins
   for (int i = 0; i < 4; i++) {
@@ -58,9 +70,6 @@ void setup() {
   digitalWrite(10, HIGH);
   
   stopMotors();
-  
-  Serial.println("RoboCup Robot Started - UART Mode");
-  Serial.println("Waiting for IR sensor data...");
 }
 
 void loop() {
@@ -70,7 +79,17 @@ void loop() {
     if (incoming >= 0) {
       currentStrongestSensor = (byte)incoming;
       lastPacketTime = millis();
+      digitalWrite(LED_BUILTIN, HIGH);
     }
+  }
+
+  if (digitalRead(LED_BUILTIN) == HIGH && millis() - lastPacketTime > 25) {
+    digitalWrite(LED_BUILTIN, LOW);
+  }
+
+  if (DEBUG_FORCE_MOTION_SWEEP && millis() - lastDebugSweepTime >= DEBUG_SWEEP_INTERVAL) {
+    lastDebugSweepTime = millis();
+    debugSweepMode = (debugSweepMode + 1) % 4;
   }
 
   // Check for packet timeout
@@ -78,18 +97,23 @@ void loop() {
     currentStrongestSensor = 255;
   }
 
-  // Only update the motion command once per second.
+  // Update the motion command frequently for tracking.
   if (millis() - lastMoveCommandTime >= MOVE_INTERVAL) {
     lastMoveCommandTime = millis();
 
-    if (currentStrongestSensor == 255) {
-      searchForBall();
-      Serial.println("TIMEOUT: No IR data");
+    if (DEBUG_FORCE_MOTION_SWEEP) {
+      switch (debugSweepMode) {
+        case 0: driveForward(forwardSpeed); break;
+        case 1: strafeRight(strafeSpeed); break;
+        case 2: driveBackward(forwardSpeed); break;
+        case 3: strafeLeft(strafeSpeed); break;
+      }
+    } else if (currentStrongestSensor == 255) {
+      stopMotors();
     } else {
       // Map received sensor index to the front reference using sensorIndexAtMotor0
       byte relativeIndex = (currentStrongestSensor + 12 - sensorIndexAtMotor0) % 12;
       followBall(relativeIndex);
-      printSensorDebug(currentStrongestSensor);
     }
   }
   
@@ -136,6 +160,62 @@ void stopMotors() {
   }
 }
 
+void driveForward(int speed) {
+  setMotor(0, true, speed);
+  setMotor(1, true, speed);
+  setMotor(2, true, speed);
+  setMotor(3, true, speed);
+}
+
+void driveBackward(int speed) {
+  setMotor(0, false, speed);
+  setMotor(1, false, speed);
+  setMotor(2, false, speed);
+  setMotor(3, false, speed);
+}
+
+void strafeRight(int speed) {
+  setMotor(0, true, speed);
+  setMotor(1, true, speed);
+  setMotor(2, false, speed);
+  setMotor(3, false, speed);
+}
+
+void strafeLeft(int speed) {
+  setMotor(0, false, speed);
+  setMotor(1, false, speed);
+  setMotor(2, true, speed);
+  setMotor(3, true, speed);
+}
+
+void driveForwardRight(int speed) {
+  setMotor(0, true, speed);
+  setMotor(1, true, speed / 2);
+  setMotor(2, false, speed / 2);
+  setMotor(3, true, speed);
+}
+
+void driveBackwardRight(int speed) {
+  setMotor(0, true, speed / 2);
+  setMotor(1, false, speed);
+  setMotor(2, false, speed);
+  setMotor(3, false, speed / 2);
+}
+
+void driveBackwardLeft(int speed) {
+  setMotor(0, false, speed / 2);
+  setMotor(1, false, speed);
+  setMotor(2, false, speed / 2);
+  setMotor(3, true, speed);
+}
+
+void driveForwardLeft(int speed) {
+  setMotor(0, false, speed);
+  setMotor(1, true, speed / 2);
+  setMotor(2, true, speed);
+  setMotor(3, true, speed / 2);
+}
+
 void drivePolar(float angle, int magnitude) {
   // Convert angle (degrees) and magnitude to forward/strafe components
   // angle: 0° = forward, 90° = right, 180° = back, 270° = left
@@ -177,8 +257,8 @@ void drivePolar(float angle, int magnitude) {
 }
 
 void searchForBall() {
-  // Slow forward creep while searching for the ball.
-  drivePolar(0, 30);
+  // Stop when no signal is present; easier to debug with no Serial Monitor.
+  stopMotors();
 }
 
 /*
@@ -200,38 +280,42 @@ void followBall(byte sensorIndex) {
     return;
   }
   
-  // Calculate angle to ball
-  // 12 sensors = 360°, so each sensor = 30° apart
-  // Sensor 0 = 0° (front), increases clockwise
-  float angle = (sensorIndex / 12.0) * 360.0;
-  // If the robot is moving away from the ball, invert the travel direction.
-  // This makes the chassis drive toward the detected sensor instead of away from it.
-  angle += 180.0;
-  if (angle >= 360.0) {
-    angle -= 360.0;
+  // 12 sensors = 30° each. Collapse that into 8 simple motion sectors so the
+  // robot moves predictably instead of spinning in place.
+  switch (sensorIndex) {
+    case 0:
+    case 11:
+    case 1:
+      driveForward(forwardSpeed);
+      break;
+
+    case 2:
+    case 3:
+      driveForwardRight(strafeSpeed);
+      break;
+
+    case 4:
+    case 5:
+      strafeRight(strafeSpeed);
+      break;
+
+    case 6:
+      driveBackwardRight(searchSpeed);
+      break;
+
+    case 7:
+    case 8:
+      driveBackward(forwardSpeed);
+      break;
+
+    case 9:
+    case 10:
+      driveBackwardLeft(strafeSpeed);
+      break;
+
+    default:
+      stopMotors();
+      break;
   }
-  
-  // Use fixed base magnitude since strength is not transmitted by Micro
-  int baseMagnitude = 180;  // Base drive speed
-  int magnitude = baseMagnitude;
-  
-  // Drive toward the calculated angle
-  drivePolar(angle, magnitude);
 }
 
-/*
-  printSensorDebug()
-  Optional debug output - comment out for competition performance.
-  Shows sensor index and raw values over USB serial.
-*/
-void printSensorDebug(byte sensorIndex) {
-  static unsigned long lastDebugTime = 0;
-  
-  // Print debug info every 200ms to avoid flooding serial
-  if (millis() - lastDebugTime > 200) {
-    lastDebugTime = millis();
-    
-    Serial.print("Strongest sensor (raw): ");
-    Serial.println(sensorIndex == 255 ? -1 : sensorIndex);
-  }
-}

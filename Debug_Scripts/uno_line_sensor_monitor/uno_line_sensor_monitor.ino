@@ -1,5 +1,5 @@
 /*
-  uno_raw_echo.ino
+  uno_line_sensor_monitor.ino
   Simple line sensor monitor for a HW-006 style digital sensor on D8.
   Prints whether the sensor sees black or not.
 */

@@ -2,7 +2,14 @@
 
 const unsigned long BAUD = 115200;
 // Use pin 9 as RX (Micro TX -> Uno pin 9). TX not used.
-SoftwareSerial uart(9, -1);
+SoftwareSerial uart(0, 1);
+
+int decodeCounterLabel(char label) {
+  if (label >= 'A' && label <= 'L') {
+    return label - 'A';
+  }
+  return -1;
+}
 
 void setup() {
   Serial.begin(BAUD);
@@ -14,11 +21,20 @@ void setup() {
 void loop() {
   while (uart.available()) {
     int v = uart.read();
-    Serial.print("RX char: ");
-    Serial.print((char)v);
-    Serial.print("  (0x");
-    if (v < 16) Serial.print('0');
-    Serial.print(v, HEX);
-    Serial.println(")");
+    if (v == '\r' || v == '\n') {
+      continue;
+    }
+
+    char label = (char)v;
+    int counter = decodeCounterLabel(label);
+
+    Serial.print("RX label: ");
+    Serial.print(label);
+    Serial.print("  counter: ");
+    if (counter >= 0) {
+      Serial.println(counter);
+    } else {
+      Serial.println("unknown");
+    }
   }
 }
